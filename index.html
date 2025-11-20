@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Кликер с 5 генераторами (Cloudflare)</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1b2430;
+      color: #f5f7fb;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    .game {
+      background: #222b39;
+      padding: 20px 24px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      width: 420px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+
+    .stats {
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+      border-bottom: 1px solid #4a5a6c;
+      padding-bottom: 8px;
+    }
+
+    .label {
+      opacity: 0.7;
+    }
+
+    .value {
+      font-weight: 600;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .tap-area {
+      margin-top: 8px;
+      border-radius: 10px;
+      border: 2px dashed #4a5a6c;
+      padding: 18px;
+      text-align: center;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.1s ease, transform 0.05s ease;
+    }
+
+    .tap-area:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .tap-area:active {
+      transform: scale(0.98);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .tap-hint {
+      font-size: 12px;
+      opacity: 0.7;
+      margin-top: 4px;
+    }
+
+    .generators {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .generator {
+      border-radius: 9px;
+      padding: 8px 10px;
+      background: #1d2735;
+      border: 1px solid #4a5a6c;
+      font-size: 13px;
+    }
+
+    .generator-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .generator-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+
+    .gen-buttons {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.05s ease, box-shadow 0.05s ease, background 0.2s ease, opacity 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .btn-buy {
+      background: #ff9f40;
+      color: #2a1300;
+      box-shadow: 0 3px 0 #cc6a12;
+    }
+
+    .btn-upgrade {
+      background: #2ed38d;
+      color: #0f1620;
+      box-shadow: 0 3px 0 #149e6b;
+    }
+
+    .btn:active:not(:disabled) {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+    }
+
+    .btn:disabled {
+      cursor: default;
+      opacity: 0.45;
+      box-shadow: none;
+    }
+
+    .tier-up-banner,
+    .achievement-banner {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 14px;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      white-space: nowrap;
+    }
+
+    .tier-up-banner {
+      top: 8px;
+      background: #ff9f40;
+      color: #2a1300;
+    }
+
+    .achievement-banner {
+      bottom: 8px;
+      background: #9a83ff;
+      color: #0f1620;
+      transform: translateX(-50%) translateY(20px);
+    }
+
+    .tier-up-banner.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .achievement-banner.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+<div class="game">
+  <div class="tier-up-banner" id="tierUpBanner">Tier Up!</div>
+  <div class="achievement-banner" id="achievementBanner">Achievement!</div>
+
+  <div class="title">Кликер с 5 генераторами (Cloudflare общий стейт)</div>
+
+  <!-- Глобальные статы -->
+  <div class="stats">
+    <div class="row">
+      <span class="label">Баланс (общий):</span>
+      <span class="value" id="balance">0</span>
+    </div>
+    <div class="row">
+      <span class="label">Общий доход в секунду:</span>
+      <span class="value" id="totalIncomePerSec">0</span>
+    </div>
+    <div class="row">
+      <span class="label">Уровень (глобальный):</span>
+      <span class="value" id="globalLevel">0</span>
+    </div>
+    <div class="row">
+      <span class="label">Тир:</span>
+      <span class="value" id="tier">1</span>
+    </div>
+  </div>
+
+  <!-- Тап-зона -->
+  <div class="tap-area" id="tapArea">
+    Тап-зона — нажимай, чтобы поднимать общий баланс!
+    <div class="tap-hint">
+      Каждый тап даёт +общий доход в секунду (считается на сервере).
+    </div>
+  </div>
+
+  <!-- Генераторы -->
+  <div class="generators">
+    <!-- 1 -->
+    <div class="generator" id="gen1">
+      <div class="generator-header">
+        <span>Генератор 1</span>
+        <span class="label">Множитель: x1</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Доход:</span>
+        <span class="value" id="gen1Income">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Уровень генератора:</span>
+        <span class="value" id="gen1Level">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость апгрейда:</span>
+        <span class="value" id="gen1UpgradeCost">0</span>
+      </div>
+      <div class="gen-buttons">
+        <button class="btn btn-upgrade" id="gen1UpgradeBtn">
+          Upgrade
+        </button>
+      </div>
+    </div>
+
+    <!-- 2 -->
+    <div class="generator" id="gen2">
+      <div class="generator-header">
+        <span>Генератор 2</span>
+        <span class="label">Множитель: x2</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Доход:</span>
+        <span class="value" id="gen2Income">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Уровень генератора:</span>
+        <span class="value" id="gen2Level">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость апгрейда:</span>
+        <span class="value" id="gen2UpgradeCost">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость покупки:</span>
+        <span class="value" id="gen2BuyCost">0</span>
+      </div>
+      <div class="gen-buttons">
+        <button class="btn btn-buy" id="gen2BuyBtn">Купить</button>
+        <button class="btn btn-upgrade" id="gen2UpgradeBtn">Upgrade</button>
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="generator" id="gen3">
+      <div class="generator-header">
+        <span>Генератор 3</span>
+        <span class="label">Множитель: x3</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Доход:</span>
+        <span class="value" id="gen3Income">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Уровень генератора:</span>
+        <span class="value" id="gen3Level">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость апгрейда:</span>
+        <span class="value" id="gen3UpgradeCost">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость покупки:</span>
+        <span class="value" id="gen3BuyCost">0</span>
+      </div>
+      <div class="gen-buttons">
+        <button class="btn btn-buy" id="gen3BuyBtn">Купить</button>
+        <button class="btn btn-upgrade" id="gen3UpgradeBtn">Upgrade</button>
+      </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="generator" id="gen4">
+      <div class="generator-header">
+        <span>Генератор 4</span>
+        <span class="label">Множитель: x4</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Доход:</span>
+        <span class="value" id="gen4Income">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Уровень генератора:</span>
+        <span class="value" id="gen4Level">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость апгрейда:</span>
+        <span class="value" id="gen4UpgradeCost">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость покупки:</span>
+        <span class="value" id="gen4BuyCost">0</span>
+      </div>
+      <div class="gen-buttons">
+        <button class="btn btn-buy" id="gen4BuyBtn">Купить</button>
+        <button class="btn btn-upgrade" id="gen4UpgradeBtn">Upgrade</button>
+      </div>
+    </div>
+
+    <!-- 5 -->
+    <div class="generator" id="gen5">
+      <div class="generator-header">
+        <span>Генератор 5</span>
+        <span class="label">Множитель: x5</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Доход:</span>
+        <span class="value" id="gen5Income">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Уровень генератора:</span>
+        <span class="value" id="gen5Level">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость апгрейда:</span>
+        <span class="value" id="gen5UpgradeCost">0</span>
+      </div>
+      <div class="generator-row">
+        <span class="label">Стоимость покупки:</span>
+        <span class="value" id="gen5BuyCost">0</span>
+      </div>
+      <div class="gen-buttons">
+        <button class="btn btn-buy" id="gen5BuyBtn">Купить</button>
+        <button class="btn btn-upgrade" id="gen5UpgradeBtn">Upgrade</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ==========================
+  //   НАСТРОЙКА API (Cloudflare Worker URL)
+  // ==========================
+  const API_BASE = 'https://nameless-rice-189c.heatherglade-kft.workers.dev'; // <-- поменяй сюда
+
+  // ==========================
+  //   КЛИЕНТСКОЕ СОСТОЯНИЕ
+  // ==========================
+  let state = {
+    balance: 0,
+    tier: 1,
+    globalLevel: 0,
+    n: 5,
+    lastUpdate: Date.now(),
+    generators: [],
+    unlockedAchievements: []
+  };
+
+  const achievementsMeta = {
+    b_10:   'Первые карманные',
+    b_50:   'Небольшая заначка',
+    b_100:  'Миллионер (почти)',
+    b_250:  'Стабильный доход',
+    b_500:  'Тысяча уже близко',
+    b_1k:   'Первая тысяча',
+    b_2k5:  'Местный богач',
+    b_5k:   'Серьёзные суммы',
+    b_10k:  'Маленький бизнес',
+    b_25k:  'Инвестор-любитель',
+    b_50k:  'Полтинник в кармане',
+    b_100k: 'Сто тысяч!',
+    b_250k: 'Серьёзный капитал',
+    b_500k: 'Полмиллиона',
+    b_1m:   'Миллионер',
+    b_2m5:  'Мультимиллионер',
+    b_5m:   'Очень богатый человек',
+    b_10m:  'Десять миллионов',
+    b_50m:  'Большая лига',
+    b_100m: 'Легенда капитала'
+  };
+
+  const shownAchievements = new Set();
+
+  // ==========================
+  //   DOM
+  // ==========================
+  const balanceEl = document.getElementById('balance');
+  const totalIncomePerSecEl = document.getElementById('totalIncomePerSec');
+  const globalLevelEl = document.getElementById('globalLevel');
+  const tierEl = document.getElementById('tier');
+  const tapArea = document.getElementById('tapArea');
+  const tierUpBanner = document.getElementById('tierUpBanner');
+  const achievementBanner = document.getElementById('achievementBanner');
+
+  const genIncomeEls = {};
+  const genLevelEls = {};
+  const genUpgradeCostEls = {};
+  const genBuyCostEls = {};
+  const genBuyBtns = {};
+  const genUpgradeBtns = {};
+
+  for (let i = 1; i <= 5; i++) {
+    genIncomeEls[i] = document.getElementById(`gen${i}Income`);
+    genLevelEls[i] = document.getElementById(`gen${i}Level`);
+    genUpgradeCostEls[i] = document.getElementById(`gen${i}UpgradeCost`);
+    genBuyCostEls[i] = document.getElementById(`gen${i}BuyCost`);
+    genBuyBtns[i] = document.getElementById(`gen${i}BuyBtn`);
+    genUpgradeBtns[i] = document.getElementById(`gen${i}UpgradeBtn`);
+  }
+
+  let tierUpTimeoutId = null;
+  let achievementTimeoutId = null;
+
+  // ==========================
+  //   UI-ЛОГИКА
+  // ==========================
+  function getEffectiveIncome(gen) {
+    return gen.incomeBase * gen.index;
+  }
+
+  function getTotalIncomePerSecond(st) {
+    return (st.generators || []).reduce(
+      (sum, g) => g.purchased ? sum + getEffectiveIncome(g) : sum,
+      0
+    );
+  }
+
+  function showTierUpBanner() {
+    tierUpBanner.classList.add('visible');
+    if (tierUpTimeoutId) clearTimeout(tierUpTimeoutId);
+    tierUpTimeoutId = setTimeout(() => {
+      tierUpBanner.classList.remove('visible');
+    }, 2000);
+  }
+
+  function showAchievementBanner(title) {
+    achievementBanner.textContent = 'Достижение: ' + title;
+    achievementBanner.classList.add('visible');
+    if (achievementTimeoutId) clearTimeout(achievementTimeoutId);
+    achievementTimeoutId = setTimeout(() => {
+      achievementBanner.classList.remove('visible');
+    }, 2500);
+  }
+
+  function handleNewState(newState) {
+    const prevTier = state.tier ?? 1;
+    const prevAchievements = new Set(state.unlockedAchievements || []);
+
+    state = newState;
+
+    if (state.tier > prevTier) {
+      showTierUpBanner();
+    }
+
+    if (Array.isArray(state.unlockedAchievements)) {
+      for (const id of state.unlockedAchievements) {
+        if (!prevAchievements.has(id) && !shownAchievements.has(id)) {
+          shownAchievements.add(id);
+          const name = achievementsMeta[id] || id;
+          showAchievementBanner(name);
+          break;
+        }
+      }
+    }
+
+    updateUI();
+  }
+
+  function updateUI() {
+    balanceEl.textContent = state.balance.toFixed(0);
+    const totalIncome = getTotalIncomePerSecond(state);
+    totalIncomePerSecEl.textContent = totalIncome.toFixed(2);
+    globalLevelEl.textContent = state.globalLevel;
+    tierEl.textContent = state.tier;
+
+    (state.generators || []).forEach(gen => {
+      const i = gen.index;
+      const income = getEffectiveIncome(gen);
+      const nextIncomeBase = +(gen.incomeBase * 1.15).toFixed(4);
+      const nextIncome = nextIncomeBase * gen.index;
+      const deltaIncome = +(nextIncome - income).toFixed(2);
+
+      if (genIncomeEls[i]) {
+        genIncomeEls[i].textContent =
+          `${income.toFixed(2)} (+${deltaIncome})`;
+      }
+      if (genLevelEls[i]) {
+        genLevelEls[i].textContent = gen.level;
+      }
+      if (genUpgradeCostEls[i] && gen.upgradeCost != null) {
+        genUpgradeCostEls[i].textContent = gen.upgradeCost;
+      }
+      if (genBuyCostEls[i] && gen.buyCost != null) {
+        genBuyCostEls[i].textContent = gen.buyCost;
+      }
+
+      if (genBuyBtns[i]) {
+        genBuyBtns[i].disabled = gen.purchased || state.balance < (gen.buyCost || 0);
+      }
+      if (genUpgradeBtns[i]) {
+        if (!gen.purchased) {
+          genUpgradeBtns[i].disabled = true;
+        } else {
+          genUpgradeBtns[i].disabled = state.balance < (gen.upgradeCost || 0);
+        }
+      }
+    });
+  }
+
+  // ==========================
+  //   ВЗАИМОДЕЙСТВИЕ С WORKER
+  // ==========================
+  async function apiGetState() {
+    const res = await fetch(`${API_BASE}/state`, { method: 'GET' });
+    if (!res.ok) {
+      console.error('Ошибка GET /state', res.status);
+      return;
+    }
+    const data = await res.json();
+    handleNewState(data);
+  }
+
+  async function apiTap() {
+    try {
+      const res = await fetch(`${API_BASE}/tap`, { method: 'POST' });
+      if (!res.ok) {
+        console.error('Ошибка POST /tap', res.status);
+        return;
+      }
+      const data = await res.json();
+      handleNewState(data);
+    } catch (e) {
+      console.error('Ошибка сети /tap', e);
+    }
+  }
+
+  async function apiBuyGenerator(index) {
+    try {
+      const res = await fetch(`${API_BASE}/buy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index })
+      });
+      if (!res.ok) {
+        console.error('Ошибка POST /buy', res.status);
+        return;
+      }
+      const data = await res.json();
+      handleNewState(data);
+    } catch (e) {
+      console.error('Ошибка сети /buy', e);
+    }
+  }
+
+  async function apiUpgradeGenerator(index) {
+    try {
+      const res = await fetch(`${API_BASE}/upgrade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index })
+      });
+      if (!res.ok) {
+        console.error('Ошибка POST /upgrade', res.status);
+        return;
+      }
+      const data = await res.json();
+      handleNewState(data);
+    } catch (e) {
+      console.error('Ошибка сети /upgrade', e);
+    }
+  }
+
+  // ==========================
+  //   СВЯЗКА UI ↔ API
+  // ==========================
+  tapArea.addEventListener('click', () => {
+    apiTap();
+  });
+
+  for (let i = 2; i <= 5; i++) {
+    if (genBuyBtns[i]) {
+      genBuyBtns[i].addEventListener('click', () => apiBuyGenerator(i));
+    }
+  }
+
+  for (let i = 1; i <= 5; i++) {
+    if (genUpgradeBtns[i]) {
+      genUpgradeBtns[i].addEventListener('click', () => apiUpgradeGenerator(i));
+    }
+  }
+
+  // Пинг стейта каждые 5 секунд (другие юзеры тоже жмут)
+  setInterval(() => {
+    apiGetState().catch(() => {});
+  }, 5000);
+
+  // Старт
+  apiGetState();
+</script>
+</body>
+</html>
