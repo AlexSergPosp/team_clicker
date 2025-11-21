@@ -198,7 +198,6 @@
 
   <div class="title">Кликер с 5 генераторами (Cloudflare общий стейт)</div>
 
-  <!-- Глобальные статы -->
   <div class="stats">
     <div class="row">
       <span class="label">Баланс (общий):</span>
@@ -218,17 +217,14 @@
     </div>
   </div>
 
-  <!-- Тап-зона -->
   <div class="tap-area" id="tapArea">
     Тап-зона — нажимай, чтобы поднимать общий баланс!
     <div class="tap-hint">
-      Каждый тап даёт +общий доход в секунду (считается на сервере).
+      Каждый тап даёт +общий доход в секунду (на сервере, с батчингом).
     </div>
   </div>
 
-  <!-- Генераторы -->
   <div class="generators">
-    <!-- 1 -->
     <div class="generator" id="gen1">
       <div class="generator-header">
         <span>Генератор 1</span>
@@ -253,7 +249,6 @@
       </div>
     </div>
 
-    <!-- 2 -->
     <div class="generator" id="gen2">
       <div class="generator-header">
         <span>Генератор 2</span>
@@ -281,7 +276,6 @@
       </div>
     </div>
 
-    <!-- 3 -->
     <div class="generator" id="gen3">
       <div class="generator-header">
         <span>Генератор 3</span>
@@ -309,7 +303,6 @@
       </div>
     </div>
 
-    <!-- 4 -->
     <div class="generator" id="gen4">
       <div class="generator-header">
         <span>Генератор 4</span>
@@ -337,7 +330,6 @@
       </div>
     </div>
 
-    <!-- 5 -->
     <div class="generator" id="gen5">
       <div class="generator-header">
         <span>Генератор 5</span>
@@ -368,14 +360,10 @@
 </div>
 
 <script>
-  // ==========================
-  //   НАСТРОЙКА API (Cloudflare Worker URL)
-  // ==========================
-  const API_BASE = 'https://nameless-rice-189c.heatherglade-kft.workers.dev'; // <-- поменяй сюда
+  // ⬇⬇⬇ ЗДЕСЬ ПОДСТАВЬ СВОЙ URL ВОРКЕРА ⬇⬇⬇
+  const API_BASE = 'https://nameless-rice-189c.heatherglade-kft.workers.dev';
 
-  // ==========================
-  //   КЛИЕНТСКОЕ СОСТОЯНИЕ
-  // ==========================
+  // Клиентский стейт (будет заменён на серверный при первом /state)
   let state = {
     balance: 0,
     tier: 1,
@@ -411,9 +399,6 @@
 
   const shownAchievements = new Set();
 
-  // ==========================
-  //   DOM
-  // ==========================
   const balanceEl = document.getElementById('balance');
   const totalIncomePerSecEl = document.getElementById('totalIncomePerSec');
   const globalLevelEl = document.getElementById('globalLevel');
@@ -441,9 +426,10 @@
   let tierUpTimeoutId = null;
   let achievementTimeoutId = null;
 
-  // ==========================
-  //   UI-ЛОГИКА
-  // ==========================
+  // === Батчинг тапов ===
+  let tapBuffer = 0;
+  let tapSending = false;
+
   function getEffectiveIncome(gen) {
     return gen.incomeBase * gen.index;
   }
@@ -537,30 +523,55 @@
     });
   }
 
-  // ==========================
-  //   ВЗАИМОДЕЙСТВИЕ С WORKER
-  // ==========================
-  async function apiGetState() {
-    const res = await fetch(`${API_BASE}/state`, { method: 'GET' });
-    if (!res.ok) {
-      console.error('Ошибка GET /state', res.status);
-      return;
-    }
-    const data = await res.json();
-    handleNewState(data);
+  // Локальный тап — мгновенный отклик
+  function localTap() {
+    const income = getTotalIncomePerSecond(state);
+    state.balance += income;
+    tapBuffer += 1;
+    updateUI();
   }
 
-  async function apiTap() {
+  // Отправка батча тапов на сервер
+  function scheduleTapSend() {
+    if (tapSending) return;
+    tapSending = true;
+
+    setTimeout(async () => {
+      const countToSend = tapBuffer;
+      tapBuffer = 0;
+      tapSending = false;
+
+      if (countToSend <= 0) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/tap`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count: countToSend })
+        });
+        if (!res.ok) {
+          console.error('Ошибка POST /tap', res.status);
+          return;
+        }
+        const data = await res.json();
+        handleNewState(data);
+      } catch (e) {
+        console.error('Ошибка сети /tap', e);
+      }
+    }, 200); // каждые ~200мс сбрасываем буфер на сервер
+  }
+
+  async function apiGetState() {
     try {
-      const res = await fetch(`${API_BASE}/tap`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/state`, { method: 'GET' });
       if (!res.ok) {
-        console.error('Ошибка POST /tap', res.status);
+        console.error('Ошибка GET /state', res.status);
         return;
       }
       const data = await res.json();
       handleNewState(data);
     } catch (e) {
-      console.error('Ошибка сети /tap', e);
+      console.error('Ошибка сети /state', e);
     }
   }
 
@@ -600,11 +611,10 @@
     }
   }
 
-  // ==========================
-  //   СВЯЗКА UI ↔ API
-  // ==========================
+  // Связка UI ↔ API
   tapArea.addEventListener('click', () => {
-    apiTap();
+    localTap();       // сразу обновили локально
+    scheduleTapSend(); // отправка батча на сервер
   });
 
   for (let i = 2; i <= 5; i++) {
@@ -619,12 +629,12 @@
     }
   }
 
-  // Пинг стейта каждые 5 секунд (другие юзеры тоже жмут)
+  // Периодически подтягиваем стейт от других игроков
   setInterval(() => {
     apiGetState().catch(() => {});
   }, 5000);
 
-  // Старт
+  // Старт: один раз получаем стейт с сервера
   apiGetState();
 </script>
 </body>
